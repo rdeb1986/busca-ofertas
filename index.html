@@ -33,6 +33,12 @@ label.g input{width:auto}
 <main>
 <h1>🔎 Busca nos grupos de ofertas</h1>
 <div id="err"></div>
+<div id="st" class="mut" style="margin-bottom:8px"></div>
+<section id="ask" class="card hidden">
+  <p id="askLabel" style="margin:0 0 8px"></p>
+  <input id="askInput" autocomplete="off" style="margin-bottom:8px">
+  <button id="askOk">Continuar</button>
+</section>
 
 <section id="login" class="card hidden">
   <p class="mut">Cole os dados gerados em my.telegram.org. Ficam salvos só neste navegador.</p>
@@ -82,6 +88,17 @@ const ls = {
   del:k=>{try{localStorage.removeItem(k)}catch(e){}}
 };
 const err = m => $("err").textContent = m || "";
+const st = m => $("st").textContent = m || "";
+function ask(label, type){
+  return new Promise(res=>{
+    $("askLabel").textContent = label;
+    const i = $("askInput"); i.value = ""; i.type = type || "text";
+    $("ask").classList.remove("hidden"); i.focus();
+    const done = ()=>{ const v=i.value.trim(); if(!v) return; $("ask").classList.add("hidden"); res(v); };
+    $("askOk").onclick = done;
+    i.onkeydown = e=>{ if(e.key==="Enter") done(); };
+  });
+}
 const esc = s => s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const linkify = s => esc(s).replace(/(https?:\/\/[^\s<]+)/g,'<a href="$1" target="_blank" rel="noopener">$1</a>');
 
@@ -92,12 +109,19 @@ async function connect(){
   let saved = ls.get("tg_session")||"";
   try{ client = new TelegramClient(new StringSession(saved), apiId, apiHash, {connectionRetries:5}); }
   catch(e){ ls.del("tg_session"); client = new TelegramClient(new StringSession(""), apiId, apiHash, {connectionRetries:5}); }
+  st("Conectando ao Telegram…");
+  await Promise.race([
+    client.connect(),
+    new Promise((_,rej)=>setTimeout(()=>rej(new Error("Tempo esgotado ao conectar. A rede pode estar bloqueando a conexão com o Telegram.")),25000))
+  ]);
+  st("Conectado. Verificando login…");
   await client.start({
-    phoneNumber: async()=>prompt("Seu número com DDI, ex.: +5519999999999"),
-    phoneCode: async()=>prompt("Código que chegou no Telegram"),
-    password: async()=>prompt("Senha de verificação em duas etapas"),
-    onError: e=>err("Erro no login: "+(e.message||e))
+    phoneNumber: ()=>ask("Seu número com DDI, ex.: +5519999999999","tel"),
+    phoneCode: ()=>{ st("Código enviado. Veja no app do Telegram."); return ask("Código recebido no Telegram","tel"); },
+    password: ()=>ask("Senha de verificação em duas etapas","password"),
+    onError: e=>{ err("Erro no login: "+(e&&e.message?e.message:e)); }
   });
+  st("");
   ls.set("tg_session", client.session.save());
 }
 
@@ -168,7 +192,7 @@ async function iniciar(){
 $("btnLogin").onclick=()=>{
   const id=$("apiId").value.trim(), h=$("apiHash").value.trim();
   if(!id||!h){err("Preencha api_id e api_hash.");return}
-  ls.set("tg_id",id); ls.set("tg_hash",h); err(""); iniciar();
+  ls.set("tg_id",id); ls.set("tg_hash",h); err(""); st("Iniciando…"); iniciar();
 };
 $("btnBuscar").onclick=buscar;
 $("q").addEventListener("keydown",e=>{if(e.key==="Enter")buscar()});
