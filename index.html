@@ -29,6 +29,9 @@ button:disabled{opacity:.5}
 .msg{white-space:pre-wrap;word-break:break-word;margin:6px 0}
 .grp{font-size:13px;color:var(--mut)}
 a{color:var(--ac)}
+.ph{margin:8px 0}
+.ph img{width:100%;max-height:300px;object-fit:contain;border-radius:8px;background:#0004;display:block}
+.ph.load{min-height:60px;display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:13px;background:#0003;border-radius:8px}
 .hidden{display:none}
 label.g{display:flex;gap:8px;align-items:center;padding:6px 0}
 label.g input{width:auto}
@@ -60,6 +63,7 @@ label.g input{width:auto}
       <select id="ord"><option value="rec">Mais recentes</option><option value="menor">Menor preço</option></select>
       <select id="lim"><option value="10">10 por grupo</option><option value="25" selected>25 por grupo</option><option value="50">50 por grupo</option></select>
     </div>
+    <label class="g"><input type="checkbox" id="img" checked> Mostrar imagens (gasta mais dados)</label>
     <button id="btnBuscar">Buscar</button>
   </div>
   <div id="res"></div>
@@ -181,11 +185,52 @@ function linkMsg(d,m){
   return e.username?`https://t.me/${e.username}/${m.id}`:`https://t.me/c/${String(e.id)}/${m.id}`;
 }
 
+let blobUrls = [];
+function fotoDe(m){
+  try{
+    if(m.photo) return m.photo;
+    const w = m.webPreview;
+    if(w && w.photo) return w.photo;
+  }catch(e){}
+  return null;
+}
+function tamanho(ph){
+  const s = (ph.sizes||[]).filter(x=>x && x.type);
+  for(const t of ["m","x","y"]){ const f = s.find(x=>x.type===t); if(f) return f; }
+  return s[s.length-1];
+}
+async function baixarFoto(ph){
+  let buf = null;
+  try{ const sz = tamanho(ph); buf = await client.downloadMedia(ph, sz ? {thumb: sz} : {}); }catch(e){}
+  if(!buf || !buf.length){ buf = await client.downloadMedia(ph, {}); }
+  if(!buf || !buf.length) throw new Error("sem dados");
+  return buf;
+}
+async function carregarImagens(items){
+  let next = 0;
+  const worker = async()=>{
+    while(next < items.length){
+      const it = items[next++];
+      const box = document.querySelector('[data-ph="'+it.i+'"]');
+      if(!box) continue;
+      try{
+        const buf = await baixarFoto(it.ph);
+        const url = URL.createObjectURL(new Blob([buf], {type:"image/jpeg"}));
+        blobUrls.push(url);
+        const img = document.createElement("img"); img.alt = ""; img.src = url;
+        box.classList.remove("load"); box.textContent = ""; box.appendChild(img);
+      }catch(e){ box.remove(); }
+    }
+  };
+  await Promise.all([worker(), worker(), worker(), worker()]);
+}
+
 async function buscar(){
   err(""); const q=$("q").value.trim(); if(!q) return;
   const gs=selecionados(); if(!gs.length){err("Marque ao menos um grupo.");return}
+  blobUrls.forEach(u=>URL.revokeObjectURL(u)); blobUrls=[]; ls.set("tg_img", $("img").checked?"1":"0");
   $("btnBuscar").disabled=true; $("res").innerHTML='<p class="mut">Buscando…</p>';
-  const limit=parseInt($("lim").value); let out=[];
+  const limit=parseInt($("lim").value); let out=[]; const mostrar=$("img").checked;
   await Promise.all(gs.map(async d=>{
     try{
       const ms=await client.getMessages(d.entity,{search:q,limit});
@@ -194,14 +239,19 @@ async function buscar(){
   }));
   if($("ord").value==="menor") out.sort((a,b)=>(a.p??1e12)-(b.p??1e12));
   else out.sort((a,b)=>b.m.date-a.m.date);
-  $("res").innerHTML = out.length ? out.map(({d,m,p})=>`
+  $("res").innerHTML = out.length ? out.map(({d,m,p},i)=>`
     <div class="card">
       ${p!=null?`<div class="price">R$ ${p.toLocaleString("pt-BR",{minimumFractionDigits:2})}</div>`:""}
+      ${(mostrar && fotoDe(m))?`<div class="ph load" data-ph="${i}">Carregando imagem…</div>`:""}
       <div class="msg">${linkify(m.message.slice(0,700))}</div>
       <div class="grp">${esc(d.title||"")} · ${new Date(m.date*1000).toLocaleString("pt-BR",{dateStyle:"short",timeStyle:"short"})}</div>
       <a href="${linkMsg(d,m)}" target="_blank" rel="noopener">Abrir no Telegram</a>
     </div>`).join("") : '<p class="mut">Nada encontrado.</p>';
   $("btnBuscar").disabled=false;
+  if(mostrar){
+    const items = out.map((o,i)=>({i, ph: fotoDe(o.m)})).filter(x=>x.ph);
+    carregarImagens(items);
+  }
 }
 
 async function iniciar(){
@@ -220,6 +270,7 @@ $("btnLogin").onclick=()=>{
   if(!id||!h){err("Preencha api_id e api_hash.");return}
   ls.set("tg_id",id); ls.set("tg_hash",h); err(""); st("Iniciando…"); iniciar();
 };
+if(ls.get("tg_img")==="0") $("img").checked=false;
 $("btnBuscar").onclick=buscar;
 $("q").addEventListener("keydown",e=>{if(e.key==="Enter")buscar()});
 $("btnRecarregar").onclick=carregarGrupos;
