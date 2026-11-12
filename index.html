@@ -63,8 +63,8 @@ label.g input{width:auto}
 </main>
 
 <script type="module">
-import { TelegramClient } from "https://esm.sh/telegram@2.26.16";
-import { StringSession } from "https://esm.sh/telegram@2.26.16/sessions";
+import { TelegramClient, sessions } from "https://esm.sh/telegram@2.26.16";
+const StringSession = sessions.StringSession;
 
 const $ = id => document.getElementById(id);
 const ls = {
@@ -80,7 +80,9 @@ let client = null, dialogs = [];
 
 async function connect(){
   const apiId = parseInt(ls.get("tg_id")), apiHash = ls.get("tg_hash");
-  client = new TelegramClient(new StringSession(ls.get("tg_session")||""), apiId, apiHash, {connectionRetries:5});
+  let saved = ls.get("tg_session")||"";
+  try{ client = new TelegramClient(new StringSession(saved), apiId, apiHash, {connectionRetries:5}); }
+  catch(e){ ls.del("tg_session"); client = new TelegramClient(new StringSession(""), apiId, apiHash, {connectionRetries:5}); }
   await client.start({
     phoneNumber: async()=>prompt("Seu número com DDI, ex.: +5519999999999"),
     phoneCode: async()=>prompt("Código que chegou no Telegram"),
@@ -149,7 +151,7 @@ async function iniciar(){
     $("login").classList.add("hidden"); $("app").classList.remove("hidden");
     await carregarGrupos();
   }catch(e){
-    err("Não foi possível conectar: "+(e.message||e));
+    console.error(e); err("Não foi possível conectar: "+(e&&e.name?e.name+" - ":"")+(e&&e.message?e.message:String(e))); ls.del("tg_session");
     $("login").classList.remove("hidden");
   }
 }
