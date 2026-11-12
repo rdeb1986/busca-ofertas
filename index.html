@@ -74,6 +74,25 @@ globalThis.Buffer = Buffer;
 globalThis.process = globalThis.process || { env:{}, versions:{}, browser:true, nextTick:(f,...a)=>setTimeout(()=>f(...a),0) };
 let TelegramClient, StringSession;
 try{
+  // O esm.sh entrega um "crypto" de mentira; trocamos por hashes reais (síncronos)
+  const stub = await import("https://esm.sh/node/crypto.mjs");
+  const { sha1 } = await import("https://esm.sh/@noble/hashes@1.5.0/sha1");
+  const { sha256, sha512 } = await import("https://esm.sh/@noble/hashes@1.5.0/sha2");
+  const { pbkdf2 } = await import("https://esm.sh/@noble/hashes@1.5.0/pbkdf2");
+  const algs = { sha1, sha256, sha512 };
+  const norm = a => String(a||"sha1").toLowerCase().replace("-","");
+  const toU8 = d => typeof d === "string" ? new TextEncoder().encode(d) : new Uint8Array(d.buffer ? d.buffer.slice(d.byteOffset, d.byteOffset + d.byteLength) : d);
+  const P = stub.default;
+  P.createHash = alg => {
+    const f = algs[norm(alg)];
+    if(!f) throw new Error("hash não suportado: "+alg);
+    const h = f.create();
+    return { update(d){ h.update(toU8(d)); return this; }, digest(enc){ const r = Buffer.from(h.digest()); return enc ? r.toString(enc) : r; } };
+  };
+  P.randomBytes = n => { const a = new Uint8Array(n); crypto.getRandomValues(a); return Buffer.from(a); };
+  P.pbkdf2Sync = (pw, salt, iter, len, dig) => Buffer.from(pbkdf2(algs[norm(dig)], toU8(pw), toU8(salt), { c: iter, dkLen: len }));
+  P.pbkdf2 = (pw, salt, iter, len, dig, cb) => { try{ cb(null, P.pbkdf2Sync(pw, salt, iter, len, dig)); }catch(e){ cb(e); } };
+
   const lib = await import("https://esm.sh/telegram@2.26.16?bundle");
   TelegramClient = lib.TelegramClient;
   StringSession = lib.sessions.StringSession;
