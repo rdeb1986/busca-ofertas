@@ -60,7 +60,7 @@ label.g input{width:auto}
   <div class="card">
     <div class="row"><input id="q" placeholder="Ex.: air fryer" enterkeyhint="search"></div>
     <div class="row">
-      <select id="ord"><option value="rec">Mais recentes</option><option value="menor">Menor preço</option></select>
+      <select id="ord"><option value="rec">Mais novos primeiro</option><option value="antigo">Mais antigos primeiro</option><option value="menor">Menor preço</option><option value="maior">Maior preço</option></select>
       <select id="lim"><option value="10">10 por grupo</option><option value="25" selected>25 por grupo</option><option value="50">50 por grupo</option></select>
     </div>
     <label class="g"><input type="checkbox" id="img" checked> Mostrar imagens (gasta mais dados)</label>
@@ -185,7 +185,8 @@ function linkMsg(d,m){
   return e.username?`https://t.me/${e.username}/${m.id}`:`https://t.me/c/${String(e.id)}/${m.id}`;
 }
 
-let blobUrls = [];
+const imgCache = new Map();   // chave da mensagem -> imagem (só na memória)
+let ultimos = [];
 function fotoDe(m){
   try{
     if(m.photo) return m.photo;
@@ -206,17 +207,21 @@ async function baixarFoto(ph){
   if(!buf || !buf.length) throw new Error("sem dados");
   return buf;
 }
+const chave = (d,m) => String(d.id)+"_"+m.id;
 async function carregarImagens(items){
   let next = 0;
   const worker = async()=>{
     while(next < items.length){
       const it = items[next++];
-      const box = document.querySelector('[data-ph="'+it.i+'"]');
+      const box = document.querySelector('[data-ph="'+it.key+'"]');
       if(!box) continue;
       try{
-        const buf = await baixarFoto(it.ph);
-        const url = URL.createObjectURL(new Blob([buf], {type:"image/jpeg"}));
-        blobUrls.push(url);
+        let url = imgCache.get(it.key);
+        if(!url){
+          const buf = await baixarFoto(it.ph);
+          url = URL.createObjectURL(new Blob([buf], {type:"image/jpeg"}));
+          imgCache.set(it.key, url);
+        }
         const img = document.createElement("img"); img.alt = ""; img.src = url;
         box.classList.remove("load"); box.textContent = ""; box.appendChild(img);
       }catch(e){ box.remove(); }
@@ -225,33 +230,48 @@ async function carregarImagens(items){
   await Promise.all([worker(), worker(), worker(), worker()]);
 }
 
-async function buscar(){
-  err(""); const q=$("q").value.trim(); if(!q) return;
-  const gs=selecionados(); if(!gs.length){err("Marque ao menos um grupo.");return}
-  blobUrls.forEach(u=>URL.revokeObjectURL(u)); blobUrls=[]; ls.set("tg_img", $("img").checked?"1":"0");
-  $("btnBuscar").disabled=true; $("res").innerHTML='<p class="mut">Buscando…</p>';
-  const limit=parseInt($("lim").value); let out=[]; const mostrar=$("img").checked;
-  await Promise.all(gs.map(async d=>{
-    try{
-      const ms=await client.getMessages(d.entity,{search:q,limit});
-      for(const m of ms){ if(m.message) out.push({d,m,p:preco(m.message)}); }
-    }catch(e){}
-  }));
-  if($("ord").value==="menor") out.sort((a,b)=>(a.p??1e12)-(b.p??1e12));
-  else out.sort((a,b)=>b.m.date-a.m.date);
-  $("res").innerHTML = out.length ? out.map(({d,m,p},i)=>`
+function ordenar(lista){
+  const v = $("ord").value, L = lista.slice();
+  const pr = (x,vazio)=> x.p==null ? vazio : x.p;
+  if(v==="antigo") L.sort((a,b)=>a.m.date-b.m.date);
+  else if(v==="menor") L.sort((a,b)=>(pr(a,1e12)-pr(b,1e12)) || (b.m.date-a.m.date));
+  else if(v==="maior") L.sort((a,b)=>(pr(b,-1)-pr(a,-1)) || (b.m.date-a.m.date));
+  else L.sort((a,b)=>b.m.date-a.m.date);
+  return L;
+}
+
+function mostrarResultados(){
+  const mostrar = $("img").checked;
+  const out = ordenar(ultimos);
+  $("res").innerHTML = out.length ? out.map(({d,m,p})=>`
     <div class="card">
       ${p!=null?`<div class="price">R$ ${p.toLocaleString("pt-BR",{minimumFractionDigits:2})}</div>`:""}
-      ${(mostrar && fotoDe(m))?`<div class="ph load" data-ph="${i}">Carregando imagem…</div>`:""}
+      ${(mostrar && fotoDe(m))?`<div class="ph load" data-ph="${chave(d,m)}">Carregando imagem…</div>`:""}
       <div class="msg">${linkify(m.message.slice(0,700))}</div>
       <div class="grp">${esc(d.title||"")} · ${new Date(m.date*1000).toLocaleString("pt-BR",{dateStyle:"short",timeStyle:"short"})}</div>
       <a href="${linkMsg(d,m)}" target="_blank" rel="noopener">Abrir no Telegram</a>
     </div>`).join("") : '<p class="mut">Nada encontrado.</p>';
-  $("btnBuscar").disabled=false;
   if(mostrar){
-    const items = out.map((o,i)=>({i, ph: fotoDe(o.m)})).filter(x=>x.ph);
+    const items = out.map(o=>({key: chave(o.d,o.m), ph: fotoDe(o.m)})).filter(x=>x.ph);
     carregarImagens(items);
   }
+}
+
+async function buscar(){
+  err(""); const q=$("q").value.trim(); if(!q) return;
+  const gs=selecionados(); if(!gs.length){err("Marque ao menos um grupo.");return}
+  imgCache.forEach(u=>URL.revokeObjectURL(u)); imgCache.clear(); ultimos=[];
+  ls.set("tg_img", $("img").checked?"1":"0"); ls.set("tg_ord", $("ord").value);
+  $("btnBuscar").disabled=true; $("res").innerHTML='<p class="mut">Buscando…</p>';
+  const limit=parseInt($("lim").value);
+  await Promise.all(gs.map(async d=>{
+    try{
+      const ms=await client.getMessages(d.entity,{search:q,limit});
+      for(const m of ms){ if(m.message) ultimos.push({d,m,p:preco(m.message)}); }
+    }catch(e){}
+  }));
+  mostrarResultados();
+  $("btnBuscar").disabled=false;
 }
 
 async function iniciar(){
@@ -271,6 +291,9 @@ $("btnLogin").onclick=()=>{
   ls.set("tg_id",id); ls.set("tg_hash",h); err(""); st("Iniciando…"); iniciar();
 };
 if(ls.get("tg_img")==="0") $("img").checked=false;
+{ const o=ls.get("tg_ord"); if(o && [...$("ord").options].some(x=>x.value===o)) $("ord").value=o; }
+$("ord").onchange=()=>{ ls.set("tg_ord",$("ord").value); if(ultimos.length) mostrarResultados(); };
+$("img").onchange=()=>{ ls.set("tg_img",$("img").checked?"1":"0"); if(ultimos.length) mostrarResultados(); };
 $("btnBuscar").onclick=buscar;
 $("q").addEventListener("keydown",e=>{if(e.key==="Enter")buscar()});
 $("btnRecarregar").onclick=carregarGrupos;
