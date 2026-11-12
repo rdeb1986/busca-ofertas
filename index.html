@@ -63,8 +63,17 @@ label.g input{width:auto}
 </main>
 
 <script type="module">
-import { TelegramClient, sessions } from "https://esm.sh/telegram@2.26.16";
-const StringSession = sessions.StringSession;
+import { Buffer } from "https://esm.sh/buffer@6.0.3";
+globalThis.Buffer = Buffer;
+globalThis.process = globalThis.process || { env:{}, versions:{}, browser:true, nextTick:(f,...a)=>setTimeout(()=>f(...a),0) };
+let TelegramClient, StringSession;
+try{
+  const lib = await import("https://esm.sh/telegram@2.26.16?bundle");
+  TelegramClient = lib.TelegramClient;
+  StringSession = lib.sessions.StringSession;
+}catch(e){
+  document.getElementById("err").textContent = "Falha ao carregar a biblioteca: " + (e&&e.message?e.message:e);
+}
 
 const $ = id => document.getElementById(id);
 const ls = {
