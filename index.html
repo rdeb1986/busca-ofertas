@@ -4,16 +4,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Busca Ofertas</title>
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#111418">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
-:root{--bg:#f4f5f7;--card:#fff;--tx:#1b1f24;--mut:#6b7380;--ac:#1f7ae0;--ok:#0a8a4a}
-@media(prefers-color-scheme:dark){:root{--bg:#111418;--card:#1b2027;--tx:#e8ebef;--mut:#8f99a6;--ac:#5aa2ff;--ok:#3ccf82}}
+:root{--bg:#111418;--card:#1b2027;--tx:#e8ebef;--mut:#8f99a6;--ac:#5aa2ff;--ok:#3ccf82;color-scheme:dark}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.45 system-ui,sans-serif}
 main{max-width:680px;margin:0 auto;padding:16px}
 h1{font-size:20px;margin:4px 0 12px}
 .card{background:var(--card);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
 input,select,button{font:inherit;padding:11px 12px;border-radius:10px;border:1px solid #8884;background:var(--card);color:var(--tx);width:100%}
-button{background:var(--ac);color:#fff;border:0;font-weight:600;cursor:pointer}
+button{background:#2b6fe0;color:#fff;border:0;font-weight:600;cursor:pointer}
 button.sec{background:transparent;color:var(--ac);border:1px solid var(--ac)}
 button:disabled{opacity:.5}
 .row{display:flex;gap:8px;margin-bottom:8px}
@@ -26,7 +32,7 @@ a{color:var(--ac)}
 .hidden{display:none}
 label.g{display:flex;gap:8px;align-items:center;padding:6px 0}
 label.g input{width:auto}
-#err{color:#d33;font-size:14px;margin:6px 0}
+#err{color:#ff6b6b;font-size:14px;margin:6px 0}
 </style>
 </head>
 <body>
@@ -68,6 +74,7 @@ label.g input{width:auto}
 </section>
 </main>
 
+<script>if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}))}</script>
 <script type="module">
 import { Buffer } from "https://esm.sh/buffer@6.0.3";
 globalThis.Buffer = Buffer;
