@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Busca Ofertas</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--tx:#1b1f24;--mut:#6b7380;--ac:#1f7ae0;--ok:#0a8a4a}
+@media(prefers-color-scheme:dark){:root{--bg:#111418;--card:#1b2027;--tx:#e8ebef;--mut:#8f99a6;--ac:#5aa2ff;--ok:#3ccf82}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.45 system-ui,sans-serif}
+main{max-width:680px;margin:0 auto;padding:16px}
+h1{font-size:20px;margin:4px 0 12px}
+.card{background:var(--card);border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+input,select,button{font:inherit;padding:11px 12px;border-radius:10px;border:1px solid #8884;background:var(--card);color:var(--tx);width:100%}
+button{background:var(--ac);color:#fff;border:0;font-weight:600;cursor:pointer}
+button.sec{background:transparent;color:var(--ac);border:1px solid var(--ac)}
+button:disabled{opacity:.5}
+.row{display:flex;gap:8px;margin-bottom:8px}
+.row>*{flex:1}.row>button.small{flex:0 0 auto;width:auto}
+.mut{color:var(--mut);font-size:13px}
+.price{color:var(--ok);font-weight:700;font-size:18px}
+.msg{white-space:pre-wrap;word-break:break-word;margin:6px 0}
+.grp{font-size:13px;color:var(--mut)}
+a{color:var(--ac)}
+.hidden{display:none}
+label.g{display:flex;gap:8px;align-items:center;padding:6px 0}
+label.g input{width:auto}
+#err{color:#d33;font-size:14px;margin:6px 0}
+</style>
+</head>
+<body>
+<main>
+<h1>🔎 Busca nos grupos de ofertas</h1>
+<div id="err"></div>
+
+<section id="login" class="card hidden">
+  <p class="mut">Cole os dados gerados em my.telegram.org. Ficam salvos só neste navegador.</p>
+  <input id="apiId" inputmode="numeric" placeholder="api_id" style="margin-bottom:8px">
+  <input id="apiHash" placeholder="api_hash" style="margin-bottom:8px">
+  <button id="btnLogin">Entrar no Telegram</button>
+</section>
+
+<section id="app" class="hidden">
+  <div class="card">
+    <div class="row"><input id="q" placeholder="Ex.: air fryer" enterkeyhint="search"></div>
+    <div class="row">
+      <select id="ord"><option value="rec">Mais recentes</option><option value="menor">Menor preço</option></select>
+      <select id="lim"><option value="10">10 por grupo</option><option value="25" selected>25 por grupo</option><option value="50">50 por grupo</option></select>
+    </div>
+    <button id="btnBuscar">Buscar</button>
+  </div>
+  <div id="res"></div>
+  <details class="card">
+    <summary>Grupos pesquisados</summary>
+    <div id="grupos" class="mut">Carregando…</div>
+    <div class="row" style="margin-top:8px">
+      <button class="sec" id="btnRecarregar">Recarregar lista</button>
+      <button class="sec" id="btnSair">Sair / apagar login</button>
+    </div>
+  </details>
+</section>
+</main>
+
+<script type="module">
+import { TelegramClient } from "https://esm.sh/telegram@2.26.16";
+import { StringSession } from "https://esm.sh/telegram@2.26.16/sessions";
+
+const $ = id => document.getElementById(id);
+const ls = {
+  get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},
+  set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}},
+  del:k=>{try{localStorage.removeItem(k)}catch(e){}}
+};
+const err = m => $("err").textContent = m || "";
+const esc = s => s.replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const linkify = s => esc(s).replace(/(https?:\/\/[^\s<]+)/g,'<a href="$1" target="_blank" rel="noopener">$1</a>');
+
+let client = null, dialogs = [];
+
+async function connect(){
+  const apiId = parseInt(ls.get("tg_id")), apiHash = ls.get("tg_hash");
+  client = new TelegramClient(new StringSession(ls.get("tg_session")||""), apiId, apiHash, {connectionRetries:5});
+  await client.start({
+    phoneNumber: async()=>prompt("Seu número com DDI, ex.: +5519999999999"),
+    phoneCode: async()=>prompt("Código que chegou no Telegram"),
+    password: async()=>prompt("Senha de verificação em duas etapas"),
+    onError: e=>err("Erro no login: "+(e.message||e))
+  });
+  ls.set("tg_session", client.session.save());
+}
+
+async function carregarGrupos(){
+  $("grupos").textContent = "Carregando…";
+  const all = await client.getDialogs({limit:400});
+  dialogs = all.filter(d=>d.isGroup||d.isChannel);
+  const sel = new Set(JSON.parse(ls.get("tg_sel")||"[]"));
+  const none = sel.size===0;
+  $("grupos").innerHTML = dialogs.map(d=>{
+    const id = String(d.id);
+    return `<label class="g"><input type="checkbox" data-id="${id}" ${(none||sel.has(id))?"checked":""}> ${esc(d.title||"")}</label>`;
+  }).join("") || "Nenhum grupo encontrado.";
+  document.querySelectorAll("#grupos input").forEach(c=>c.onchange=salvarSel);
+}
+function salvarSel(){
+  const ids=[...document.querySelectorAll("#grupos input:checked")].map(c=>c.dataset.id);
+  ls.set("tg_sel", JSON.stringify(ids));
+}
+function selecionados(){
+  const ids=new Set([...document.querySelectorAll("#grupos input:checked")].map(c=>c.dataset.id));
+  return dialogs.filter(d=>ids.has(String(d.id)));
+}
+function preco(t){
+  const m=[...t.matchAll(/R\$\s*([\d.]+(?:,\d{1,2})?)/g)].map(x=>parseFloat(x[1].replace(/\./g,"").replace(",",".")));
+  const v=m.filter(n=>!isNaN(n)&&n>0);
+  return v.length?Math.min(...v):null;
+}
+function linkMsg(d,m){
+  const e=d.entity;
+  return e.username?`https://t.me/${e.username}/${m.id}`:`https://t.me/c/${String(e.id)}/${m.id}`;
+}
+
+async function buscar(){
+  err(""); const q=$("q").value.trim(); if(!q) return;
+  const gs=selecionados(); if(!gs.length){err("Marque ao menos um grupo.");return}
+  $("btnBuscar").disabled=true; $("res").innerHTML='<p class="mut">Buscando…</p>';
+  const limit=parseInt($("lim").value); let out=[];
+  await Promise.all(gs.map(async d=>{
+    try{
+      const ms=await client.getMessages(d.entity,{search:q,limit});
+      for(const m of ms){ if(m.message) out.push({d,m,p:preco(m.message)}); }
+    }catch(e){}
+  }));
+  if($("ord").value==="menor") out.sort((a,b)=>(a.p??1e12)-(b.p??1e12));
+  else out.sort((a,b)=>b.m.date-a.m.date);
+  $("res").innerHTML = out.length ? out.map(({d,m,p})=>`
+    <div class="card">
+      ${p!=null?`<div class="price">R$ ${p.toLocaleString("pt-BR",{minimumFractionDigits:2})}</div>`:""}
+      <div class="msg">${linkify(m.message.slice(0,700))}</div>
+      <div class="grp">${esc(d.title||"")} · ${new Date(m.date*1000).toLocaleString("pt-BR",{dateStyle:"short",timeStyle:"short"})}</div>
+      <a href="${linkMsg(d,m)}" target="_blank" rel="noopener">Abrir no Telegram</a>
+    </div>`).join("") : '<p class="mut">Nada encontrado.</p>';
+  $("btnBuscar").disabled=false;
+}
+
+async function iniciar(){
+  try{
+    await connect();
+    $("login").classList.add("hidden"); $("app").classList.remove("hidden");
+    await carregarGrupos();
+  }catch(e){
+    err("Não foi possível conectar: "+(e.message||e));
+    $("login").classList.remove("hidden");
+  }
+}
+
+$("btnLogin").onclick=()=>{
+  const id=$("apiId").value.trim(), h=$("apiHash").value.trim();
+  if(!id||!h){err("Preencha api_id e api_hash.");return}
+  ls.set("tg_id",id); ls.set("tg_hash",h); err(""); iniciar();
+};
+$("btnBuscar").onclick=buscar;
+$("q").addEventListener("keydown",e=>{if(e.key==="Enter")buscar()});
+$("btnRecarregar").onclick=carregarGrupos;
+$("btnSair").onclick=()=>{["tg_session","tg_id","tg_hash","tg_sel"].forEach(ls.del);location.reload()};
+
+if(ls.get("tg_id")&&ls.get("tg_hash")) iniciar(); else $("login").classList.remove("hidden");
+</script>
+</body>
+</html>
